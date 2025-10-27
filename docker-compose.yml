@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  startup-agent:
+    build: .
+    container_name: startup-idea-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist ideas history across container restarts
+      - ./data:/app/data
+    environment:
+      - IDEAS_HISTORY_FILE=/app/data/ideas_history.json
+    # Optional: Set logging limits
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
