@@ -9,19 +9,19 @@
 
 case "$1" in
     tail)
-        echo "Following live logs (Ctrl+C to stop)..."
-        tail -f agent.log 2>/dev/null || echo "No log file yet. Agent hasn't started logging."
+        echo "[LOGS] Streaming live logs (Ctrl+C to stop)..."
+        tail -f agent.log 2>/dev/null || echo "[WARN] Log file not found. Agent has not started logging yet."
         ;;
     rejected)
         echo "=== REJECTED IDEAS ==="
-        grep "REJECTED:" agent.log 2>/dev/null || echo "No rejections logged yet."
+        grep "\[REJECTED\]" agent.log 2>/dev/null || echo "[INFO] No rejected ideas logged yet."
         ;;
     found)
         echo "=== FOUND IDEAS ==="
-        grep "FOUND PROMISING IDEA:" agent.log 2>/dev/null || echo "No promising ideas found yet."
+        grep "\[APPROVED\]" agent.log 2>/dev/null || echo "[INFO] No promising ideas found yet."
         ;;
     *)
         echo "=== AGENT LOGS ==="
-        cat agent.log 2>/dev/null || echo "No log file yet. Agent hasn't started."
+        cat agent.log 2>/dev/null || echo "[WARN] Log file not found. Agent has not started yet."
         ;;
 esac

@@ -116,11 +116,11 @@ def send_startup_idea_email(idea_data: dict) -> bool:
             server.login(gmail_user, gmail_app_password)
             server.send_message(msg)
 
-        print(f"SUCCESS: Email sent: {idea_data['title']}")
+        print(f"[EMAIL] Successfully sent: {idea_data['title']}")
         return True
 
     except Exception as e:
-        print(f"ERROR: Failed to send email: {e}")
+        print(f"[ERROR] Failed to send email: {e}")
         return False
 
 

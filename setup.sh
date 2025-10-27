@@ -1,16 +1,16 @@
 #!/bin/bash
 
-echo "🚀 Startup Idea Agent Setup"
+echo "Startup Idea Agent Setup"
 echo "=========================="
 echo ""
 
 # Check if .env exists
 if [ -f .env ]; then
-    echo "✓ .env file already exists"
+    echo "[OK] .env file already exists"
 else
-    echo "📝 Creating .env file from template..."
+    echo "[SETUP] Creating .env file from template..."
     cp .env.example .env
-    echo "⚠️  Please edit .env and add your credentials:"
+    echo "[ACTION REQUIRED] Please edit .env and add your credentials:"
     echo "   - ANTHROPIC_API_KEY"
     echo "   - GMAIL_USER"
     echo "   - GMAIL_APP_PASSWORD"
@@ -20,31 +20,31 @@ fi
 
 # Create data directory
 if [ -d data ]; then
-    echo "✓ data directory already exists"
+    echo "[OK] data directory already exists"
 else
-    echo "📁 Creating data directory..."
+    echo "[SETUP] Creating data directory..."
     mkdir -p data
 fi
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo "❌ Docker is not running. Please start Docker and try again."
+    echo "[ERROR] Docker is not running. Please start Docker and try again."
     exit 1
 fi
 
-echo "✓ Docker is running"
+echo "[OK] Docker is running"
 echo ""
 
 # Build and start
-echo "🔨 Building Docker image..."
+echo "[BUILD] Building Docker image..."
 docker-compose build
 
 echo ""
-echo "🎯 Starting agent..."
+echo "[START] Starting agent..."
 docker-compose up -d
 
 echo ""
-echo "✅ Agent is now running!"
+echo "[SUCCESS] Agent is now running"
 echo ""
 echo "To view logs:"
 echo "  docker-compose logs -f"
@@ -52,4 +52,4 @@ echo ""
 echo "To stop the agent:"
 echo "  docker-compose down"
 echo ""
-echo "📧 Watch your inbox at team@heysanctum.com for startup ideas!"
+echo "Monitor your inbox at team@heysanctum.com for startup ideas."

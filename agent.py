@@ -63,7 +63,7 @@ class StartupIdeaAgent:
                     data = json.load(f)
                     return data.get('explored_ideas', [])
             except Exception as e:
-                print(f"WARNING: Could not load history file: {e}")
+                print(f"[WARN] Could not load history file: {e}")
                 return []
         return []
 
@@ -76,7 +76,7 @@ class StartupIdeaAgent:
                     'last_updated': datetime.now().isoformat()
                 }, f, indent=2)
         except Exception as e:
-            print(f"WARNING: Could not save history: {e}")
+            print(f"[WARN] Could not save history: {e}")
 
     def generate_and_evaluate_idea(self) -> Dict | None:
         """
@@ -86,8 +86,8 @@ class StartupIdeaAgent:
             Dict with idea details if promising, None otherwise
         """
         print(f"\n{'='*70}")
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generating new startup idea...")
-        print(f"Already explored {len(self.explored_ideas)} ideas")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [GENERATE] Generating new startup idea")
+        print(f"[HISTORY] Explored ideas count: {len(self.explored_ideas)}")
         print(f"{'='*70}\n")
 
         # Create the system prompt
@@ -213,10 +213,10 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
             if hasattr(message, 'citations') and message.citations:
                 citations = [{"url": c.url, "title": c.title} for c in message.citations]
 
-            print(f"Claude's response received")
-            print(f"Token usage: {message.usage.input_tokens} input, {message.usage.output_tokens} output")
+            print(f"[API] Response received from Claude")
+            print(f"[USAGE] Tokens: {message.usage.input_tokens} input, {message.usage.output_tokens} output")
             if citations:
-                print(f"Found {len(citations)} citations")
+                print(f"[RESEARCH] Citations found: {len(citations)}")
 
             # Parse JSON response
             # Find JSON in the response (it might be wrapped in markdown code blocks)
@@ -224,7 +224,7 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
             json_end = response_text.rfind('}') + 1
 
             if json_start == -1 or json_end == 0:
-                print("WARNING: No JSON found in response")
+                print("[WARN] No JSON found in response")
                 return None
 
             json_str = response_text[json_start:json_end]
@@ -233,10 +233,10 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
             if not result.get('venture_backable', False):
                 idea_title = result.get('idea', 'Unknown idea')
                 reason = result.get('reason', 'No reason provided')
-                print(f"REJECTED [{idea_title}]: {reason}")
+                print(f"[REJECTED] {idea_title}: {reason}")
                 return None
 
-            print(f"FOUND PROMISING IDEA: {result['title']}")
+            print(f"[APPROVED] Venture-backable idea identified: {result['title']}")
 
             # Add keywords to explored ideas
             keywords = result.get('keywords', [])
@@ -250,28 +250,28 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
             return result
 
         except anthropic.APIError as e:
-            print(f"ERROR: Anthropic API error: {e}")
+            print(f"[ERROR] Anthropic API error: {e}")
             return None
         except json.JSONDecodeError as e:
-            print(f"ERROR: Failed to parse JSON response: {e}")
-            print(f"Response text: {response_text[:500]}...")
+            print(f"[ERROR] Failed to parse JSON response: {e}")
+            print(f"[DEBUG] Response text: {response_text[:500]}...")
             return None
         except Exception as e:
-            print(f"ERROR: Unexpected error: {e}")
+            print(f"[ERROR] Unexpected error: {e}")
             return None
 
     def run(self):
         """Main loop: continuously generate ideas and send emails for promising ones."""
-        print("Startup Idea Agent Starting...")
-        print(f"Email recipient: {os.getenv('RECIPIENT_EMAIL', 'team@heysanctum.com')}")
-        print(f"Model: {MODEL}")
-        print(f"Max web searches per idea: {MAX_WEB_SEARCHES}")
+        print("[AGENT] Startup Idea Agent initializing...")
+        print(f"[CONFIG] Email recipient: {os.getenv('RECIPIENT_EMAIL', 'team@heysanctum.com')}")
+        print(f"[CONFIG] Model: {MODEL}")
+        print(f"[CONFIG] Max web searches per idea: {MAX_WEB_SEARCHES}")
         print("\n" + "="*70 + "\n")
 
         iteration = 0
         while True:
             iteration += 1
-            print(f"\nIteration {iteration}")
+            print(f"\n[ITERATION] Starting iteration {iteration}")
 
             try:
                 # Generate and evaluate idea
@@ -279,7 +279,7 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
 
                 if idea:
                     # Send email
-                    print(f"\nSending email for: {idea['title']}")
+                    print(f"\n[EMAIL] Sending email for: {idea['title']}")
 
                     email_success = send_startup_idea_email({
                         'title': idea['title'],
@@ -293,30 +293,30 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
                     })
 
                     if email_success:
-                        print(f"SUCCESS: Email sent successfully!")
+                        print(f"[SUCCESS] Email sent successfully")
                     else:
-                        print(f"WARNING: Email failed to send (but idea was saved to history)")
+                        print(f"[WARN] Email failed to send (idea saved to history)")
 
                 # Continue immediately to next iteration
-                print(f"\nMoving to next iteration...")
+                print(f"\n[AGENT] Proceeding to next iteration...")
 
             except KeyboardInterrupt:
-                print("\n\nAgent stopped by user")
+                print("\n\n[SHUTDOWN] Agent stopped by user")
                 break
             except Exception as e:
-                print(f"\nERROR: Unexpected error in main loop: {e}")
-                print("Waiting 5 minutes before retrying...")
+                print(f"\n[ERROR] Unexpected error in main loop: {e}")
+                print("[RETRY] Waiting 5 minutes before retrying...")
                 time.sleep(300)
 
 
 if __name__ == "__main__":
     # Verify required environment variables
     if not ANTHROPIC_API_KEY:
-        print("ERROR: ANTHROPIC_API_KEY not set")
+        print("[ERROR] ANTHROPIC_API_KEY not set")
         exit(1)
 
     if not os.getenv('GMAIL_USER') or not os.getenv('GMAIL_APP_PASSWORD'):
-        print("ERROR: Gmail credentials not set (GMAIL_USER, GMAIL_APP_PASSWORD)")
+        print("[ERROR] Gmail credentials not set (GMAIL_USER, GMAIL_APP_PASSWORD)")
         exit(1)
 
     # Start the agent
