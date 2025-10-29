@@ -1,4 +1,4 @@
-# Autonomous Startup Idea Agent
+# Intern Agent for Startup  Ideas
 
 An AI-powered agent that continuously generates, researches, and evaluates venture-backable startup ideas, saving the most promising ones as text files.
 
