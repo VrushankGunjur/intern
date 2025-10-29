@@ -16,6 +16,7 @@ dist/
 
 # Ideas history
 ideas_history.json
+ideas/
 
 # IDE
 .vscode/

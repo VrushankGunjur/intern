@@ -3,7 +3,7 @@
 Autonomous Startup Idea Generation Agent
 
 Continuously generates, researches, and evaluates startup ideas using Claude API.
-Sends promising venture-backable ideas via email.
+Saves promising venture-backable ideas as text files in the ideas/ directory.
 """
 
 import os
@@ -12,10 +12,9 @@ import time
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 import anthropic
 from dotenv import load_dotenv
-from email_sender import send_startup_idea_email
 
 # Load environment variables
 load_dotenv()
@@ -23,9 +22,11 @@ load_dotenv()
 # Configuration
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 IDEAS_HISTORY_FILE = Path(os.getenv('IDEAS_HISTORY_FILE', 'ideas_history.json'))
+IDEAS_DIR = Path('ideas')
 LOG_FILE = Path('agent.log')
-MODEL = "claude-haiku-4-5-20251001"  # Haiku 4.5 supports web search, much cheaper
+MODEL = "claude-sonnet-4-5-20250929"  # Sonnet 4.5 for better analysis
 MAX_WEB_SEARCHES = 5  # 5 web searches for cost efficiency while catching major competitors
+COMPRESSION_THRESHOLD = 100  # Compress learnings when history exceeds this many items
 
 
 class Logger:
@@ -53,30 +54,159 @@ class StartupIdeaAgent:
 
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        self.explored_ideas = self.load_history()
+        self.history = self.load_history()
+        # Ensure ideas directory exists
+        IDEAS_DIR.mkdir(exist_ok=True)
 
-    def load_history(self) -> List[str]:
-        """Load previously explored idea topics from JSON file."""
+    def load_history(self) -> Dict:
+        """Load history with approved ideas, rejected ideas, and compressed learnings."""
         if IDEAS_HISTORY_FILE.exists():
             try:
                 with open(IDEAS_HISTORY_FILE, 'r') as f:
                     data = json.load(f)
-                    return data.get('explored_ideas', [])
+                    # Support legacy format
+                    if 'explored_ideas' in data and not isinstance(data.get('explored_ideas'), list):
+                        return data
+                    # Legacy format: convert to new structure
+                    if 'explored_ideas' in data and isinstance(data.get('explored_ideas'), list):
+                        return {
+                            'approved_ideas': data['explored_ideas'],
+                            'rejected_ideas': [],
+                            'compressed_learnings': '',
+                            'last_updated': data.get('last_updated', datetime.now().isoformat())
+                        }
+                    return data
             except Exception as e:
                 print(f"[WARN] Could not load history file: {e}")
-                return []
-        return []
+                return {'approved_ideas': [], 'rejected_ideas': [], 'compressed_learnings': '', 'last_updated': datetime.now().isoformat()}
+        return {'approved_ideas': [], 'rejected_ideas': [], 'compressed_learnings': '', 'last_updated': datetime.now().isoformat()}
 
     def save_history(self):
-        """Save explored ideas to JSON file."""
+        """Save history with approved ideas, rejected ideas, and compressed learnings."""
         try:
+            self.history['last_updated'] = datetime.now().isoformat()
             with open(IDEAS_HISTORY_FILE, 'w') as f:
-                json.dump({
-                    'explored_ideas': self.explored_ideas,
-                    'last_updated': datetime.now().isoformat()
-                }, f, indent=2)
+                json.dump(self.history, f, indent=2)
         except Exception as e:
             print(f"[WARN] Could not save history: {e}")
+
+    def save_idea_to_file(self, idea: Dict) -> Path:
+        """Save an approved idea to a text file in the ideas/ directory."""
+        try:
+            # Create filename from timestamp and sanitized title
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            sanitized_title = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in idea['title'])
+            sanitized_title = sanitized_title.replace(' ', '_')[:50]  # Limit length
+            filename = f"{timestamp}_{sanitized_title}.txt"
+            filepath = IDEAS_DIR / filename
+
+            # Format the idea content
+            content = f"""{'='*70}
+STARTUP IDEA: {idea['title']}
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+{'='*70}
+
+CORE PROBLEM
+{'-'*70}
+{idea['core_problem']}
+
+VALUE PROPOSITION
+{'-'*70}
+{idea['value_proposition']}
+
+MARKET SIZE
+{'-'*70}
+{idea['market_size']}
+
+IDEAL CUSTOMER PROFILE (ICP)
+{'-'*70}
+{idea['icp']}
+
+JUSTIFICATION
+{'-'*70}
+{idea['justification']}
+
+COMPETITIVE LANDSCAPE
+{'-'*70}
+{idea.get('competitive_landscape', 'N/A')}
+
+SOURCES & CITATIONS
+{'-'*70}
+"""
+            # Add citations if available
+            if idea.get('citations'):
+                for i, citation in enumerate(idea['citations'], 1):
+                    content += f"{i}. {citation}\n"
+            else:
+                content += "No citations available.\n"
+
+            content += f"\n{'='*70}\n"
+
+            # Write to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            print(f"[FILE] Idea saved to: {filepath}")
+            return filepath
+        except Exception as e:
+            print(f"[ERROR] Failed to save idea to file: {e}")
+            return None
+
+    def compress_learnings(self):
+        """Compress rejected ideas into key learnings when history gets too large."""
+        rejected_count = len(self.history.get('rejected_ideas', []))
+
+        if rejected_count < COMPRESSION_THRESHOLD:
+            return  # Not enough data to compress yet
+
+        print(f"\n[COMPRESSION] Compressing {rejected_count} rejected ideas into learnings...")
+
+        try:
+            # Prepare rejected ideas for summarization
+            rejected_summary = "\n".join([
+                f"- {idea['title']}: {idea['reason']}"
+                for idea in self.history['rejected_ideas'][-COMPRESSION_THRESHOLD:]
+            ])
+
+            # Use Claude to summarize learnings
+            response = self.client.messages.create(
+                model=MODEL,
+                max_tokens=2000,
+                temperature=0.3,
+                messages=[{
+                    "role": "user",
+                    "content": f"""Analyze these rejected startup ideas and extract key learnings about what makes ideas non-venture-backable.
+
+Rejected ideas and reasons:
+{rejected_summary}
+
+Provide a concise summary (3-5 bullet points) of the most common rejection patterns and key lessons learned. Focus on:
+- Market/competition issues
+- Lack of defensibility
+- TAM concerns
+- Timing problems
+- Other systematic issues
+
+Keep it under 500 words."""
+                }]
+            )
+
+            compressed = response.content[0].text.strip()
+
+            # Update compressed learnings
+            if self.history.get('compressed_learnings'):
+                self.history['compressed_learnings'] += f"\n\n--- Compression from {datetime.now().strftime('%Y-%m-%d')} ---\n{compressed}"
+            else:
+                self.history['compressed_learnings'] = compressed
+
+            # Keep only the most recent rejected ideas
+            self.history['rejected_ideas'] = self.history['rejected_ideas'][-50:]
+
+            self.save_history()
+            print(f"[COMPRESSION] Learnings compressed successfully")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to compress learnings: {e}")
 
     def generate_and_evaluate_idea(self) -> Dict | None:
         """
@@ -87,7 +217,9 @@ class StartupIdeaAgent:
         """
         print(f"\n{'='*70}")
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [GENERATE] Generating new startup idea")
-        print(f"[HISTORY] Explored ideas count: {len(self.explored_ideas)}")
+        approved_count = len(self.history.get('approved_ideas', []))
+        rejected_count = len(self.history.get('rejected_ideas', []))
+        print(f"[HISTORY] Approved: {approved_count}, Rejected: {rejected_count}")
         print(f"{'='*70}\n")
 
         # Create the system prompt
@@ -97,13 +229,6 @@ class StartupIdeaAgent:
 - Market sizing and TAM estimation
 - Customer development and ICP definition
 - Venture capital criteria for fundability
-
-IMPORTANT: Focus on ideas suited for 22-year-old CS grad founders with:
-- Strong software engineering skills (distributed systems, ML/AI, backend infrastructure)
-- Quantitative/analytical background (can build data-intensive products)
-- Technical depth but limited industry connections or sales experience
-- Ability to build v1 without raising significant capital
-- Preference for developer tools, infrastructure, data/AI products, or technical B2B SaaS
 
 Your goal is to generate ONE truly promising, venture-backable startup idea by:
 1. Researching current trends, emerging technologies, and market gaps
@@ -115,18 +240,27 @@ Your goal is to generate ONE truly promising, venture-backable startup idea by:
 Be rigorous and critical. Only propose ideas that meet these criteria:
 - TAM of $1B+ (or clear path to it)
 - Clear, urgent customer pain point
-- Defensible competitive moat (technical complexity, network effects, data, etc.)
+- Defensible competitive moat (technical complexity, network effects, data, stickiness etc.)
 - Realistic go-to-market strategy (ideally bottom-up, developer-led, or product-led)
-- Can be built by technical founders without deep industry connections
 - Timing is right (why now?)"""
 
-        # Create the user prompt with history
-        history_str = "\n".join([f"- {idea}" for idea in self.explored_ideas[-50:]])  # Last 50 to keep prompt manageable
+        # Create the user prompt with history and learnings
+        approved_ideas = self.history.get('approved_ideas', [])
+        history_str = "\n".join([f"- {idea}" for idea in approved_ideas[-50:]])  # Last 50 to keep prompt manageable
+
+        compressed_learnings = self.history.get('compressed_learnings', '')
+        learnings_section = f"""
+
+KEY LEARNINGS FROM PAST REJECTIONS:
+{compressed_learnings}
+
+These learnings should inform your evaluation criteria.""" if compressed_learnings else ""
 
         user_prompt = f"""Generate ONE new venture-backable startup idea.
 
 IMPORTANT: Avoid ideas similar to these already explored:
-{history_str if self.explored_ideas else "(No ideas explored yet - this is your first!)"}
+{history_str if approved_ideas else "(No ideas explored yet - this is your first!)"}
+{learnings_section}
 
 Process:
 1. Use web search to research:
@@ -234,14 +368,27 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
                 idea_title = result.get('idea', 'Unknown idea')
                 reason = result.get('reason', 'No reason provided')
                 print(f"[REJECTED] {idea_title}: {reason}")
+
+                # Track rejected idea with reason
+                self.history.setdefault('rejected_ideas', []).append({
+                    'title': idea_title,
+                    'reason': reason,
+                    'timestamp': datetime.now().isoformat()
+                })
+                self.save_history()
+
+                # Check if we should compress learnings
+                self.compress_learnings()
+
                 return None
 
             print(f"[APPROVED] Venture-backable idea identified: {result['title']}")
 
-            # Add keywords to explored ideas
+            # Add keywords and title to approved ideas
             keywords = result.get('keywords', [])
-            self.explored_ideas.extend(keywords)
-            self.explored_ideas.append(result['title'])
+            approved_list = self.history.setdefault('approved_ideas', [])
+            approved_list.extend(keywords)
+            approved_list.append(result['title'])
             self.save_history()
 
             # Add citations to result
@@ -261,11 +408,12 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
             return None
 
     def run(self):
-        """Main loop: continuously generate ideas and send emails for promising ones."""
+        """Main loop: continuously generate ideas and save promising ones to files."""
         print("[AGENT] Startup Idea Agent initializing...")
-        print(f"[CONFIG] Email recipient: {os.getenv('RECIPIENT_EMAIL', 'team@heysanctum.com')}")
+        print(f"[CONFIG] Ideas directory: {IDEAS_DIR.absolute()}")
         print(f"[CONFIG] Model: {MODEL}")
         print(f"[CONFIG] Max web searches per idea: {MAX_WEB_SEARCHES}")
+        print(f"[CONFIG] Compression threshold: {COMPRESSION_THRESHOLD} rejected ideas")
         print("\n" + "="*70 + "\n")
 
         iteration = 0
@@ -278,24 +426,15 @@ Remember: Be critical and selective. Most ideas should be rejected. Only the tru
                 idea = self.generate_and_evaluate_idea()
 
                 if idea:
-                    # Send email
-                    print(f"\n[EMAIL] Sending email for: {idea['title']}")
+                    # Save idea to file
+                    print(f"\n[SAVE] Saving idea to file: {idea['title']}")
 
-                    email_success = send_startup_idea_email({
-                        'title': idea['title'],
-                        'core_problem': idea['core_problem'],
-                        'value_proposition': idea['value_proposition'],
-                        'market_size': idea['market_size'],
-                        'icp': idea['icp'],
-                        'justification': idea['justification'],
-                        'competitive_landscape': idea.get('competitive_landscape', 'N/A'),
-                        'citations': idea.get('citations', [])
-                    })
+                    filepath = self.save_idea_to_file(idea)
 
-                    if email_success:
-                        print(f"[SUCCESS] Email sent successfully")
+                    if filepath:
+                        print(f"[SUCCESS] Idea saved successfully to {filepath}")
                     else:
-                        print(f"[WARN] Email failed to send (idea saved to history)")
+                        print(f"[WARN] Failed to save idea to file (but saved to history)")
 
                 # Continue immediately to next iteration
                 print(f"\n[AGENT] Proceeding to next iteration...")
@@ -313,10 +452,6 @@ if __name__ == "__main__":
     # Verify required environment variables
     if not ANTHROPIC_API_KEY:
         print("[ERROR] ANTHROPIC_API_KEY not set")
-        exit(1)
-
-    if not os.getenv('GMAIL_USER') or not os.getenv('GMAIL_APP_PASSWORD'):
-        print("[ERROR] Gmail credentials not set (GMAIL_USER, GMAIL_APP_PASSWORD)")
         exit(1)
 
     # Start the agent

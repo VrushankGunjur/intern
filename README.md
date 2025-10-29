@@ -1,43 +1,36 @@
 # Autonomous Startup Idea Agent
 
-An AI-powered agent that continuously generates, researches, and evaluates venture-backable startup ideas, sending the most promising ones via email.
+An AI-powered agent that continuously generates, researches, and evaluates venture-backable startup ideas, saving the most promising ones as text files.
 
 ## Features
 
 - **Autonomous Research**: Uses Claude API with web search to research trends, markets, and competition in real-time
-- **Rigorous Evaluation**: Only sends ideas that meet venture capital criteria (TAM $1B+, clear moat, timing, etc.)
+- **Rigorous Evaluation**: Only saves ideas that meet venture capital criteria (TAM $1B+, clear moat, timing, etc.)
 - **Continuous Operation**: Runs 24/7 in Docker, generating ideas around the clock
-- **Smart Deduplication**: Tracks explored ideas to avoid repetition
-- **Beautiful Email Reports**: Sends formatted emails with market size, ICP, value prop, and competitive analysis
+- **Enhanced Memory System**: Tracks both approved and rejected ideas with reasons, compressing learnings to improve future evaluations
+- **Smart Deduplication**: Avoids repetition by learning from both successes and failures
+- **Organized Storage**: Saves each approved idea as a timestamped text file in the ideas/ directory
 
 ## How It Works
 
 1. **Generate**: Claude researches current trends and generates a startup idea
 2. **Research**: Performs web searches to validate market size, competition, and timing
 3. **Evaluate**: Applies VC criteria to determine if the idea is truly venture-backable
-4. **Report**: If promising, sends a detailed email with justification, TAM, ICP, and more
-5. **Loop**: Pauses briefly, then repeats continuously
+4. **Learn**: Tracks rejected ideas with reasons and compresses learnings when history grows large
+5. **Save**: If approved, saves a detailed text file to ideas/ with justification, TAM, ICP, and competitive analysis
+6. **Loop**: Continues immediately to the next iteration, learning from past successes and failures
 
 ## Prerequisites
 
-- Docker and Docker Compose
+- Docker and Docker Compose (optional, for containerized deployment)
 - Anthropic API key (Claude)
-- Gmail/Google Workspace account with your heysanctum.com domain
+- Python 3.11+ (if running locally)
 
 ## Setup
 
 ### 1. Clone/Download this repository
 
-### 2. Configure Gmail App Password
-
-Since you're using Gmail/Google Workspace with your heysanctum.com domain:
-
-1. Go to [Google App Passwords](https://myaccount.google.com/apppasswords)
-2. Sign in with your @heysanctum.com account
-3. Create a new app password for "Mail"
-4. Copy the 16-character password (remove spaces)
-
-### 3. Set up environment variables
+### 2. Set up environment variables
 
 ```bash
 # Copy the example file
@@ -47,20 +40,19 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in your credentials:
+Fill in your API key:
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
-GMAIL_USER=your_email@heysanctum.com
-GMAIL_APP_PASSWORD=your16charpassword
-RECIPIENT_EMAIL=team@heysanctum.com
 ```
 
-### 4. Create data directory
+### 3. Create data directory (for Docker deployment)
 
 ```bash
 mkdir -p data
 ```
+
+The ideas will be saved to the `ideas/` directory (automatically created on first run).
 
 ## Running the Agent
 
@@ -107,37 +99,42 @@ pip install -r requirements.txt
 python agent.py
 ```
 
-## Testing Email Functionality
+## Viewing Generated Ideas
 
-Before running the full agent, test that emails work:
+All approved ideas are saved as text files in the `ideas/` directory:
 
 ```bash
-python email_sender.py
-```
+# List all generated ideas
+ls -lh ideas/
 
-This will send a test email to verify your Gmail configuration.
+# View a specific idea
+cat ideas/20251027_123456_AI_Governance_Platform.txt
+
+# Monitor new ideas in real-time
+watch -n 5 'ls -lh ideas/ | tail -10'
+```
 
 ## Configuration
 
 ### Adjusting Research Depth
 
-Edit `agent.py` line 26 to change the number of web searches per idea:
+Edit `agent.py` line 28 to change the number of web searches per idea:
 
 ```python
 MAX_WEB_SEARCHES = 10  # Increase for deeper research, decrease for faster generation
 ```
 
-### Changing Pause Duration
+### Adjusting Learning Compression
 
-Edit `agent.py` line 226 to adjust the pause between idea generation cycles:
+Edit `agent.py` line 29 to change when rejected ideas get compressed into learnings:
 
 ```python
-pause_seconds = 150  # Currently 2.5 minutes
+COMPRESSION_THRESHOLD = 100  # Number of rejected ideas before compression runs
 ```
 
 ### Modifying Evaluation Criteria
 
-Edit the system prompt in `agent.py` starting at line 68 to adjust what makes an idea "venture-backable."
+Edit the system prompt in `agent.py` to adjust what makes an idea "venture-backable."
 
 ## Monitoring
 
@@ -161,11 +158,11 @@ docker-compose restart
 
 ## Troubleshooting
 
-### "Gmail credentials not set" error
+### "ANTHROPIC_API_KEY not set" error
 
-- Ensure your `.env` file exists and has the correct values
-- Check that `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set
-- Verify you're using an App Password, not your regular Gmail password
+- Ensure your `.env` file exists in the project root
+- Check that `ANTHROPIC_API_KEY` is set correctly
+- Verify the API key is active at https://console.anthropic.com/
 
 ### "Anthropic API error"
 
@@ -173,17 +170,19 @@ docker-compose restart
 - Check your API usage limits at https://console.anthropic.com/
 - Web search costs $10 per 1,000 searches plus token costs
 
-### No emails being sent
+### No ideas being saved
 
-- Check logs: `docker-compose logs -f`
-- The agent is highly selective - it may take several cycles before finding a truly promising idea
-- Test email functionality: `python email_sender.py`
+- Check logs: `docker-compose logs -f` or `cat agent.log`
+- The agent is highly selective - it may take several cycles before approving an idea
+- Check the `ideas/` directory for newly saved files
+- Review rejected ideas in `ideas_history.json` to see what's being filtered out
 
 ### Container keeps restarting
 
 - Check logs: `docker logs startup-idea-agent`
 - Verify all environment variables are set
 - Ensure the `data` directory exists and is writable
+- Ensure the `ideas` directory can be created
 
 ## Cost Estimation
 
@@ -199,24 +198,41 @@ With 30-60 ideas per day, expect roughly $15-60/day in API costs.
 
 ```
 agent.py              # Main agent loop and idea generation
-├─ generate_and_evaluate_idea()  # Core logic
-├─ load_history()     # Deduplication
-└─ save_history()     # Persistence
+├─ generate_and_evaluate_idea()  # Core logic with web search
+├─ load_history()     # Load approved/rejected ideas and learnings
+├─ save_history()     # Persist history with timestamps
+├─ save_idea_to_file()  # Save approved ideas as text files
+└─ compress_learnings()  # Compress rejected ideas into insights
 
-email_sender.py       # Email formatting and sending
-└─ send_startup_idea_email()
+ideas_history.json    # Enhanced history tracking (auto-generated)
+├─ approved_ideas[]   # Titles and keywords of approved ideas
+├─ rejected_ideas[]   # Rejected ideas with reasons and timestamps
+├─ compressed_learnings  # AI-generated insights from rejections
+└─ last_updated       # Timestamp of last update
 
-ideas_history.json    # Tracked ideas (auto-generated)
+ideas/                # Directory with approved idea files (auto-created)
+└─ YYYYMMDD_HHMMSS_Idea_Title.txt  # Timestamped idea files
 ```
+
+## Memory System
+
+The agent now features an enhanced memory system that learns from both successes and failures:
+
+- **Approved Ideas**: Tracked by title and keywords to avoid repetition
+- **Rejected Ideas**: Stored with detailed reasons (market issues, competition, TAM concerns, etc.)
+- **Compressed Learnings**: When rejected ideas exceed the threshold (default: 100), Claude automatically summarizes common rejection patterns into actionable insights
+- **Context Integration**: Both recent history and compressed learnings are included in prompts to improve future evaluations
 
 ## Customization Ideas
 
-- Add Slack notifications instead of/in addition to email
-- Store full reports in a database for analysis
-- Add a web dashboard to view ideas
+- Add Slack/Discord notifications when new ideas are saved
+- Parse text files into a database for analysis and visualization
+- Build a web dashboard to browse and filter saved ideas
 - Integrate with Airtable or Notion for idea management
-- Add more sophisticated deduplication (embeddings, semantic similarity)
+- Add semantic similarity checking using embeddings
 - Filter by specific industries or technologies
+- Add email notifications (using email_sender.py as a starting point)
+- Export ideas to PDF with better formatting
 
 ## License
 
